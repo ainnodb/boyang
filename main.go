@@ -5,25 +5,53 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"strings"
 )
 
-//自定义abouthandler
-type aboutHandler struct{}
-
-func (m *aboutHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("about!!"))
+func index(w http.ResponseWriter, r *http.Request) {
+	// w.Write([]byte("<h1>Welcome to Cloud Native</h1>"))
+	// 03.设置version
+	os.Setenv("VERSION", "v0.0.1")
+	version := os.Getenv("VERSION")
+	w.Header().Set("VERSION", version)
+	fmt.Printf("os version: %s \n", version)
+	// 02.将requst中的header 设置到 reponse中
+	for k, v := range r.Header {
+		for _, vv := range v {
+			fmt.Printf("Header key: %s, Header value: %s \n", k, v)
+			w.Header().Set(k, vv)
+		}
+	}
+	// 04.记录日志并输出
+	clientip := getCurrentIP(r)
+	//fmt.Println(r.RemoteAddr)
+	log.Printf("Success! Response code: %d", 200)
+	log.Printf("Success! clientip: %s", clientip)
 }
 
-//自定义abouthandler 结束
-
-func healthzHandler(w http.ResponseWriter, r *http.Request) {
+// 05.健康检查的路由
+func healthz(w http.ResponseWriter, r *http.Request) {
+	//Fprintf：来格式化并输出到 io.Writers 而不是 os.Stdout。
+	fmt.Fprintf(w, "working")
 	w.Write([]byte("200"))
 	log.Print("health check: working")
 }
+func getCurrentIP(r *http.Request) string {
+	// 这里也可以通过X-Forwarded-For请求头的第一个值作为用户的ip
+	// 但是要注意的是这两个请求头代表的ip都有可能是伪造的
+	ip := r.Header.Get("X-Real-IP")
+	if ip == "" {
+		// 当请求头不存在即不存在代理时直接获取ip
+		ip = strings.Split(r.RemoteAddr, ":")[0]
+	}
+	return ip
+}
 
-func getClientIP(r *http.Request) string {
+// ClientIP 尽最大努力实现获取客户端 IP 的算法。
+// 解析 X-Real-IP 和 X-Forwarded-For 以便于反向代理（nginx 或 haproxy）可以正常工作。
+func ClientIP(r *http.Request) string {
 	xForwardedFor := r.Header.Get("X-Forwarded-For")
 	ip := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
 	if ip != "" {
@@ -38,72 +66,21 @@ func getClientIP(r *http.Request) string {
 	}
 	return ""
 }
-
-func index(w http.ResponseWriter, r *http.Request) {
-	os.Setenv("VERSION", "v0.0.1")
-	version := os.Getenv("VERSION")
-	w.Header().Set("VERSION", version)
-	fmt.Printf("os version: %s \n", version)
-
-	if len(r.Header) > 0 {
-		for k, v := range r.Header {
-			fmt.Printf("Header key: %s, Header value: %s \n", k, v[0])
-			w.Header().Set(k, v[0])
-			// w.Header().Set(k, v)
-			// fmt.Fprint(w, k)
-			// fmt.Fprint(w, v[0])
-		}
-	}
-
-	clientip := getClientIP(r)
-	//fmt.Println(r.RemoteAddr)
-	log.Printf("Success! Response code: %d", 200)
-	log.Printf("Success! clientip: %s", clientip)
-}
-
 func main() {
-	about := aboutHandler{}
-	// server := http.Server{
-	// 	Addr: "localhost:8080",
-	// 	// Handler: &mh,  //指定myHandler 就没有了多路路由
-	// 	Handler: nil, //DefaultServe Mux
-	// }
-	http.HandleFunc("/", index)
-	// http.Handle("/", http.FileServer(http.File("index.html")))
-	http.Handle("/about", &about)
-
-	// server.ListenAndServe()
-	// http.ListenAndServe("localhost:8080", http.FileServer(http.Dir("blog"))) //DefaultServe Mux
-	http.HandleFunc("/post", func(w http.ResponseWriter, r *http.Request) {
-		length := r.ContentLength
-		body := make([]byte, length)
-		r.Body.Read(body)
-		fmt.Fprintln(w, string(body))
-	})
-
-	http.HandleFunc("/home", func(w http.ResponseWriter, r *http.Request) {
-		url := r.URL
-		query := url.Query()
-
-		id := query["id"]
-		log.Panicln(id)
-
-		name := query.Get("name")
-		log.Panicln(name)
-	})
-
-	http.HandleFunc("/process", func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		fmt.Fprintln(w, r.Form)
-		fmt.Fprintln(w, r.PostForm)
-		fmt.Fprintln(w, r.FormValue("first_name"))
-	})
-
-	http.HandleFunc("/healthz", healthzHandler)
+	// NewServeMux可以创建一个ServeMux实例，ServeMux同时也实现了ServeHTTP方法，因此代码中的mux也是一种handler。
+	//把它当成参数传给http.ListenAndServe方法，后者会把mux传给Server实例。
+	//因为指定了handler，因此整个http服务就不再是DefaultServeMux，而是mux，无论是在注册路由还是提供请求服务的时候。
+	mux := http.NewServeMux()
+	// 06. debug
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("/", index)
+	mux.HandleFunc("/healthz", healthz)
 	log.SetPrefix("[boyang]-[info]-")
 	log.SetFlags(log.Ldate | log.Llongfile)
-	err := http.ListenAndServe("localhost:8080", nil) //DefaultServe Mux
-	if err != nil {
-		log.Fatal(err)
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatalf("start http server failed, error: %s\n", err.Error())
 	}
 }
