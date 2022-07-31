@@ -1,7 +1,12 @@
-FROM golang:1.18 AS build
-WORKDIR /httpserver/
+FROM golang:1.17 AS builder
+ENV GO111MODULE=off \	
+    CGO_ENABLED=0 \
+    GOOS=linux \	
+    GOARCH=amd64
+WORKDIR /build
 COPY . .
-ENV CGO_ENABLED=0
-ENV GO111MODULE=on
-ENV GOPROXY=https://goproxy.cn,direct
-RUN GOOS=linux go build -installsuffix cgo -o httpserver main.go
+RUN go build -o httpserver .
+FROM alpine
+COPY --from=builder /build/httpserver /
+EXPOSE 8080
+ENTRYPOINT ["/httpserver"]
