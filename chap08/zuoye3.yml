@@ -13,23 +13,12 @@ spec:
       labels:
         name: httpserver
     spec:
-      replicas: 2
-      selector: 
-        matchLabels:
-          name: httpserver
       containers:
       - name: httpserver
         image: innod/httpserver:v1.0
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
-        lifecycle:
-          postStart:
-            exec:
-            command: ["bin/sh","-c","echo hello from the postStart handler > /usr/share/message"]
-          preStop:
-            exec:
-              command: ["bin/sh","-c","echo hello from the postStop handler > /usr/share/message"]
         livenessProbe:
           httpGet:
             port: 8080
@@ -50,10 +39,10 @@ spec:
           timeoutSeconds: 1
         terminationMessagePath: /dev/termination-log          
         terminationMessagePolicy: File
-      resources:
-        limits:
-          cpu: 1000m
-          memory: 300mi
-        request:
-          cpu: 1000m
-          memory: 300mi
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 300Mi
+          requests:
+            cpu: 1000m
+            memory: 300Mi
