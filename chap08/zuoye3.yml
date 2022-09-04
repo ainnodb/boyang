@@ -1,0 +1,43 @@
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: zuoye
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      name: httpserver
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        name: httpserver
+    spec:
+      containers:
+      - name: httpserver
+        image: innod/httpserver:v1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        lifecycle:
+          postStart:
+            exec:
+            command: ["bin/sh","-c","echo hello from the postStart handler > /usr/share/message"]
+          preStop:
+            exec:
+              command: ["bin/sh","-c","echo hello from the postStop handler > /usr/share/message"]
+        livenessProbe:
+          httpGet:
+            port: 80
+            path: /healthz
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 3
+          timeoutSeconds: 10
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 300mi
+        request:
+          cpu: 1000m
+          memory: 300mi
